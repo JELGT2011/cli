@@ -1,12 +1,14 @@
 package rpc_test
 
 import (
+	"fmt"
 	"net"
 	"net/rpc"
 	"time"
 
 	"github.com/cloudfoundry/cli/plugin"
 	. "github.com/cloudfoundry/cli/plugin/rpc"
+	"github.com/codegangsta/cli"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -26,20 +28,25 @@ var _ = Describe("Server", func() {
 
 	BeforeEach(func() {
 		rpc.DefaultServer = rpc.NewServer()
-
-		rpcService, err = NewRpcService()
-		Expect(err).ToNot(HaveOccurred())
 	})
 
 	Describe(".NewRpcService", func() {
+		BeforeEach(func() {
+			rpcService, err = NewRpcService(nil)
+			Expect(err).ToNot(HaveOccurred())
+		})
+
 		It("returns an err of another Rpc process is already registered", func() {
-			_, err := NewRpcService()
+			_, err := NewRpcService(nil)
 			Expect(err).To(HaveOccurred())
 		})
 	})
 
 	Describe(".Stop", func() {
 		BeforeEach(func() {
+			rpcService, err = NewRpcService(nil)
+			Expect(err).ToNot(HaveOccurred())
+
 			err := rpcService.Start()
 			Expect(err).ToNot(HaveOccurred())
 
@@ -59,6 +66,9 @@ var _ = Describe("Server", func() {
 
 	Describe(".Start", func() {
 		BeforeEach(func() {
+			rpcService, err = NewRpcService(nil)
+
+			Expect(err).ToNot(HaveOccurred())
 			err := rpcService.Start()
 			Expect(err).ToNot(HaveOccurred())
 
@@ -115,6 +125,45 @@ var _ = Describe("Server", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(success).To(BeTrue())
 			Expect(rpcService.RpcCmd.ReturnData.(plugin.PluginMetadata)).To(Equal(metadata))
+		})
+	})
+
+	Describe(".CallCoreCommand", func() {
+
+		BeforeEach(func() {
+			app := &cli.App{
+				Commands: []cli.Command{
+					{
+						Name: "test_cmd",
+						Action: func(context *cli.Context) {
+							fmt.Println("DOING STUFF NOW")
+						},
+					},
+				},
+			}
+
+			rpcService, err = NewRpcService(app)
+			Expect(err).ToNot(HaveOccurred())
+
+			err := rpcService.Start()
+			Expect(err).ToNot(HaveOccurred())
+
+			pingCli(rpcService.Port())
+		})
+
+		AfterEach(func() {
+			rpcService.Stop()
+
+			//give time for server to stop
+			time.Sleep(50 * time.Millisecond)
+		})
+
+		It("calls the code gangsta cli App command", func() {
+			var success bool
+			err = client.Call("CliRpcCmd.CallCoreCommand", []string{"test_cmd"}, &success)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(success).To(BeTrue())
 		})
 	})
 })
